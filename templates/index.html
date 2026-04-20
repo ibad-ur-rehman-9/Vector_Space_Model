@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>VSM // IR SYSTEM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Bebas+Neue&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+  :root {
+    --y: #f5c400;
+    --yd: #c49a00;
+    --yg: #fff176;
+    --bk: #080808;
+    --bk2: #0f0f0f;
+    --bk3: #161616;
+    --bk4: #1e1e1e;
+    --grid: rgba(245,196,0,0.06);
+    --gridl: rgba(245,196,0,0.12);
+    --text: #e8e8e8;
+    --muted: #555;
+    --border: rgba(245,196,0,0.2);
+    --borderh: rgba(245,196,0,0.6);
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bk);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+    cursor: crosshair;
+  }
+
+  ::selection { background: var(--y); color: var(--bk); }
+
+  /* ── scanline overlay ── */
+  body::before {
+    content:'';
+    position:fixed; inset:0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events:none;
+    z-index:9999;
+  }
+
+  /* ── grid background ── */
+  body::after {
+    content:'';
+    position:fixed; inset:0;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events:none;
+    z-index:0;
+  }
+
+  /* ── corner brackets decoration ── */
+  .bracket-tl, .bracket-tr, .bracket-bl, .bracket-br {
+    position:fixed; width:24px; height:24px; z-index:100;
+  }
+  .bracket-tl { top:16px; left:16px; border-top:2px solid var(--y); border-left:2px solid var(--y); }
+  .bracket-tr { top:16px; right:16px; border-top:2px solid var(--y); border-right:2px solid var(--y); }
+  .bracket-bl { bottom:16px; left:16px; border-bottom:2px solid var(--y); border-left:2px solid var(--y); }
+  .bracket-br { bottom:16px; right:16px; border-bottom:2px solid var(--y); border-right:2px solid var(--y); }
+
+  /* ── top system bar ── */
+  .sysbar {
+    position:relative; z-index:10;
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 10px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bk2);
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .sysbar-left { display:flex; gap:20px; align-items:center; }
+
+  .status-dot {
+    width:6px; height:6px; border-radius:50%;
+    background: var(--y);
+    box-shadow: 0 0 6px var(--y);
+    animation: pulse-dot 2s ease-in-out infinite;
+    display:inline-block; margin-right:6px;
+  }
+  @keyframes pulse-dot {
+    0%,100% { opacity:1; box-shadow: 0 0 6px var(--y); }
+    50% { opacity:0.4; box-shadow: 0 0 2px var(--y); }
+  }
+
+  #live-clock { color: var(--y); font-size:0.65rem; letter-spacing:0.08em; }
+
+  /* ── hero header ── */
+  .hero {
+    position:relative; z-index:10;
+    padding: 52px 48px 40px;
+    border-bottom: 1px solid var(--border);
+    overflow:hidden;
+  }
+
+  .hero-bg-text {
+    position:absolute;
+    top:-10px; right:-20px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 18rem;
+    color: rgba(245,196,0,0.03);
+    letter-spacing:-0.05em;
+    user-select:none;
+    pointer-events:none;
+    line-height:1;
+  }
+
+  .tag-line {
+    font-size:0.65rem;
+    color: var(--y);
+    letter-spacing: 0.25em;
+    text-transform:uppercase;
+    margin-bottom: 12px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .tag-line::before {
+    content:'';
+    display:inline-block;
+    width:32px; height:1px;
+    background: var(--y);
+  }
+
+  h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(3.2rem, 7vw, 6rem);
+    color: var(--y);
+    letter-spacing: 0.04em;
+    line-height: 0.92;
+    text-shadow: 4px 4px 0px var(--yd);
+    margin-bottom: 16px;
+  }
+
+  h1 span {
+    color: var(--text);
+    text-shadow: none;
+  }
+
+  .hero-sub {
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    display:flex; gap:24px; flex-wrap:wrap;
+  }
+  .hero-sub b { color: var(--y); font-weight:700; }
+
+  /* ── main layout ── */
+  .main {
+    position:relative; z-index:10;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 32px;
+    display:grid;
+    grid-template-columns: 1fr 320px;
+    gap: 32px;
+  }
+
+  @media (max-width:900px) {
+    .main { grid-template-columns:1fr; }
+  }
+
+  /* ── section label ── */
+  .sec-label {
+    font-size:0.6rem;
+    color: var(--y);
+    letter-spacing:0.2em;
+    text-transform:uppercase;
+    margin-bottom:12px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .sec-label::after {
+    content:'';
+    flex:1; height:1px;
+    background: var(--border);
+  }
+
+  /* ── search panel ── */
+  .search-panel {
+    background: var(--bk2);
+    border: 1px solid var(--border);
+    padding: 28px;
+    position:relative;
+    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%);
+  }
+
+  .search-panel::before {
+    content: '◢';
+    position:absolute; top:-1px; right:3px;
+    color: var(--y); font-size:0.8rem;
+    line-height:1;
+  }
+
+  .input-wrap {
+    display:flex; gap:0;
+    border: 1px solid var(--borderh);
+    background: var(--bk);
+    margin-bottom: 20px;
+    position:relative;
+  }
+
+  .input-prefix {
+    padding: 14px 14px;
+    color: var(--y);
+    font-size:0.9rem;
+    font-family:'Share Tech Mono', monospace;
+    border-right: 1px solid var(--border);
+    background: var(--bk3);
+    user-select:none;
+    flex-shrink:0;
+  }
+
+  #query-input {
+    flex:1;
+    background:transparent;
+    border:none;
+    padding: 14px 16px;
+    color: var(--text);
+    font-family:'Share Tech Mono', monospace;
+    font-size: 0.88rem;
+    outline:none;
+    caret-color: var(--y);
+  }
+  #query-input::placeholder { color: #333; }
+
+  #search-btn {
+    background: var(--y);
+    color: var(--bk);
+    border:none;
+    padding: 14px 22px;
+    font-family:'Bebas Neue', sans-serif;
+    font-size: 1rem;
+    letter-spacing:0.1em;
+    cursor:pointer;
+    transition: background 0.15s, transform 0.1s;
+    flex-shrink:0;
+    clip-path: polygon(8px 0, 100% 0, 100% 100%, 0 100%, 0 8px);
+  }
+  #search-btn:hover { background: var(--yg); }
+  #search-btn:active { transform:scale(0.96); }
+
+  /* ── controls row ── */
+  .controls {
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:16px;
+    margin-bottom: 20px;
+  }
+
+  .ctrl-group label {
+    display:block;
+    font-size:0.58rem;
+    color: var(--muted);
+    letter-spacing:0.15em;
+    text-transform:uppercase;
+    margin-bottom:6px;
+  }
+
+  .ctrl-group .val {
+    color: var(--y);
+    font-weight:700;
+  }
+
+  input[type=range] {
+    width:100%;
+    accent-color: var(--y);
+    height:3px;
+    cursor:pointer;
+  }
+
+  .query-chips {
+    display:flex; flex-wrap:wrap; gap:6px;
+    margin-bottom:8px;
+  }
+
+  .chip {
+    background:transparent;
+    border:1px solid var(--border);
+    color: var(--muted);
+    font-size:0.62rem;
+    font-family:'Share Tech Mono', monospace;
+    padding:4px 10px;
+    cursor:pointer;
+    letter-spacing:0.05em;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    clip-path: polygon(6px 0, 100% 0, 100% 100%, 0 100%, 0 6px);
+  }
+  .chip:hover {
+    border-color: var(--y);
+    color: var(--y);
+    background: rgba(245,196,0,0.05);
+  }
+
+  /* ── status bar ── */
+  .status-bar {
+    padding: 10px 14px;
+    background: var(--bk3);
+    border: 1px solid var(--border);
+    border-top: 2px solid var(--y);
+    font-size:0.7rem;
+    color: var(--muted);
+    margin-bottom: 20px;
+    display:flex; justify-content:space-between; align-items:center;
+    min-height: 40px;
+  }
+  .status-bar .hit { color: var(--y); font-weight:700; }
+
+  /* ── spinner ── */
+  .spinner-wrap {
+    display:none;
+    text-align:center;
+    padding:40px 0;
+  }
+  .spinner-wrap .spin-text {
+    font-size:0.65rem;
+    color: var(--muted);
+    letter-spacing:0.2em;
+    margin-top:14px;
+    text-transform:uppercase;
+  }
+  .hex-spinner {
+    width:40px; height:40px;
+    border: 2px solid var(--border);
+    border-top-color: var(--y);
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    animation: hspin 0.8s linear infinite;
+    margin: 0 auto;
+  }
+  @keyframes hspin { to { transform: rotate(360deg); } }
+
+  /* ── result cards ── */
+  #results { display:flex; flex-direction:column; gap:8px; }
+
+  .result-card {
+    background: var(--bk2);
+    border: 1px solid var(--border);
+    border-left: 3px solid transparent;
+    display:grid;
+    grid-template-columns: 52px 1fr auto;
+    align-items:center;
+    gap:16px;
+    padding:14px 16px;
+    transition: border-color 0.15s, background 0.15s;
+    animation: slideIn 0.2s ease both;
+    cursor: default;
+    position:relative;
+    overflow:hidden;
+  }
+
+  .result-card::before {
+    content:'';
+    position:absolute; left:0; top:0; bottom:0; width:0;
+    background: rgba(245,196,0,0.04);
+    transition: width 0.2s;
+  }
+
+  .result-card:hover {
+    border-left-color: var(--y);
+    background: var(--bk3);
+  }
+  .result-card:hover::before { width:100%; }
+
+  @keyframes slideIn {
+    from { opacity:0; transform:translateX(-10px); }
+    to   { opacity:1; transform:translateX(0); }
+  }
+
+  .rank-num {
+    font-family:'Bebas Neue', sans-serif;
+    font-size:1.8rem;
+    color: rgba(245,196,0,0.18);
+    line-height:1;
+    text-align:center;
+    transition: color 0.15s;
+  }
+  .result-card:hover .rank-num { color: rgba(245,196,0,0.5); }
+
+  .card-fname {
+    font-family:'Share Tech Mono', monospace;
+    font-size:0.78rem;
+    color: var(--text);
+    margin-bottom:4px;
+  }
+  .card-meta {
+    font-size:0.62rem;
+    color: var(--muted);
+    display:flex; gap:12px;
+  }
+  .card-meta span { color: var(--y); }
+
+  .score-block {
+    text-align:right;
+    flex-shrink:0;
+  }
+  .score-val {
+    font-family:'Bebas Neue', sans-serif;
+    font-size:1.2rem;
+    color: var(--y);
+    letter-spacing:0.05em;
+    line-height:1;
+  }
+  .score-bar-wrap {
+    width:60px;
+    height:3px;
+    background: var(--bk4);
+    margin-top:4px;
+    overflow:hidden;
+  }
+  .score-bar {
+    height:100%;
+    background: var(--y);
+    transition: width 0.4s ease;
+  }
+
+  /* ── sidebar ── */
+  .sidebar { display:flex; flex-direction:column; gap:20px; }
+
+  .side-card {
+    background: var(--bk2);
+    border: 1px solid var(--border);
+    padding: 20px;
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+    position:relative;
+  }
+  .side-card::before {
+    content:'◢';
+    position:absolute; top:-1px; right:3px;
+    color: var(--y); font-size:0.7rem;
+  }
+
+  /* stats grid */
+  .stats-grid {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+    margin-top:12px;
+  }
+  .stat-box {
+    background: var(--bk3);
+    border: 1px solid var(--border);
+    padding:12px 10px;
+    text-align:center;
+  }
+  .stat-val {
+    font-family:'Bebas Neue', sans-serif;
+    font-size:1.6rem;
+    color: var(--y);
+    line-height:1;
+  }
+  .stat-lbl {
+    font-size:0.55rem;
+    color: var(--muted);
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    margin-top:4px;
+  }
+
+  /* term frequency mini chart */
+  .tf-chart {
+    margin-top:12px;
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+  }
+  .tf-row {
+    display:grid;
+    grid-template-columns: 80px 1fr 30px;
+    align-items:center;
+    gap:8px;
+    font-size:0.62rem;
+  }
+  .tf-term { color: var(--muted); font-family:'Share Tech Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tf-bar-bg { height:4px; background: var(--bk4); overflow:hidden; }
+  .tf-bar-fill { height:100%; background: var(--y); transition: width 0.5s ease; width:0; }
+  .tf-count { color: var(--y); text-align:right; }
+
+  /* vector viz */
+  #vec-canvas {
+    width:100%;
+    height:120px;
+    display:block;
+    margin-top:12px;
+    background: var(--bk3);
+    border: 1px solid var(--border);
+  }
+
+  /* history */
+  .history-list {
+    display:flex; flex-direction:column; gap:4px;
+    margin-top:10px;
+    max-height:160px;
+    overflow-y:auto;
+  }
+  .history-list::-webkit-scrollbar { width:3px; }
+  .history-list::-webkit-scrollbar-track { background: var(--bk3); }
+  .history-list::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .hist-item {
+    font-size:0.65rem;
+    font-family:'Share Tech Mono',monospace;
+    color: var(--muted);
+    padding:5px 8px;
+    border: 1px solid transparent;
+    cursor:pointer;
+    display:flex; justify-content:space-between;
+    transition: color 0.15s, border-color 0.15s;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .hist-item:hover { color: var(--y); border-color: var(--border); }
+  .hist-item .hist-hits { color: var(--y); flex-shrink:0; margin-left:8px; }
+
+  /* empty */
+  .empty-state {
+    padding:60px 0;
+    text-align:center;
+    color: var(--muted);
+  }
+  .empty-state .e-icon {
+    font-family:'Bebas Neue',sans-serif;
+    font-size:4rem;
+    color: rgba(245,196,0,0.08);
+    letter-spacing:0.1em;
+    margin-bottom:10px;
+  }
+  .empty-state p { font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase; }
+
+  /* glitch animation on h1 hover */
+  h1:hover {
+    animation: glitch 0.3s steps(2) 1;
+  }
+  @keyframes glitch {
+    0%   { text-shadow: 4px 4px 0 var(--yd), -2px 0 0 rgba(255,50,50,0.5); clip-path: inset(0 0 80% 0); }
+    25%  { text-shadow: -4px 4px 0 var(--yd), 2px 0 0 rgba(50,255,200,0.5); clip-path: inset(20% 0 50% 0); }
+    50%  { text-shadow: 4px -4px 0 var(--yd), -2px 0 0 rgba(255,50,50,0.5); clip-path: inset(50% 0 20% 0); }
+    75%  { text-shadow: -4px -4px 0 var(--yd), 2px 0 0 rgba(50,255,200,0.5); clip-path: inset(80% 0 0 0); }
+    100% { text-shadow: 4px 4px 0 var(--yd); clip-path: inset(0); }
+  }
+
+  .no-results-txt {
+    font-size:0.7rem; color:var(--muted);
+    letter-spacing:0.1em; text-transform:uppercase;
+    margin-top:6px;
+  }
+</style>
+</head>
+<body>
+
+<div class="bracket-tl"></div>
+<div class="bracket-tr"></div>
+<div class="bracket-bl"></div>
+<div class="bracket-br"></div>
+
+<div class="sysbar">
+  <div class="sysbar-left">
+    <span><span class="status-dot"></span>SYSTEM ONLINE</span>
+    <span>CS4051 // SPRING 2026</span>
+    <span>CORPUS: 56 DOCS</span>
+  </div>
+  <span id="live-clock">--:--:--</span>
+</div>
+
+<div class="hero">
+  <div class="hero-bg-text">VSM</div>
+  <div class="tag-line">Information Retrieval System</div>
+  <h1>VECTOR<br><span>SPACE</span><br>MODEL</h1>
+  <div class="hero-sub">
+    <span>Algorithm: <b>TF·IDF</b></span>
+    <span>Similarity: <b>COSINE</b></span>
+    <span>Corpus: <b>TRUMP SPEECHES</b></span>
+    <span>Model: <b>VSM</b></span>
+  </div>
+</div>
+
+<div class="main">
+  <div class="left-col">
+
+    <div class="search-panel">
+      <div class="sec-label">Query Input</div>
+
+      <div class="input-wrap">
+        <span class="input-prefix">&gt;_</span>
+        <input id="query-input" type="text" placeholder="enter search query..." autocomplete="off" spellcheck="false"/>
+        <button id="search-btn" onclick="doSearch()">EXEC</button>
+      </div>
+
+      <div class="controls">
+        <div class="ctrl-group">
+          <label>Alpha Threshold — <span class="val" id="alpha-val">0.005</span></label>
+          <input type="range" id="alpha-slider" min="0.001" max="0.05" step="0.001" value="0.005"
+            oninput="document.getElementById('alpha-val').textContent=parseFloat(this.value).toFixed(3)"/>
+        </div>
+        <div class="ctrl-group">
+          <label>Max Results — <span class="val" id="max-val">20</span></label>
+          <input type="range" id="max-slider" min="5" max="56" step="1" value="20"
+            oninput="document.getElementById('max-val').textContent=this.value"/>
+        </div>
+      </div>
+
+      <div class="sec-label" style="margin-bottom:8px">Quick Queries</div>
+      <div class="query-chips" id="chips"></div>
+    </div>
+
+    <div class="status-bar" id="status-bar">
+      <span>AWAITING QUERY INPUT</span>
+      <span style="font-size:0.6rem;letter-spacing:0.1em">ALPHA=0.005</span>
+    </div>
+
+    <div class="spinner-wrap" id="spinner">
+      <div class="hex-spinner"></div>
+      <div class="spin-text">Computing cosine similarity...</div>
+    </div>
+
+    <div id="results">
+      <div class="empty-state">
+        <div class="e-icon">NULL</div>
+        <p>No query executed</p>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="sidebar">
+
+    <div class="side-card">
+      <div class="sec-label">Session Stats</div>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-val" id="stat-queries">0</div>
+          <div class="stat-lbl">Queries</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="stat-hits">0</div>
+          <div class="stat-lbl">Total Hits</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="stat-avg">—</div>
+          <div class="stat-lbl">Avg Score</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="stat-top">—</div>
+          <div class="stat-lbl">Top Score</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-card">
+      <div class="sec-label">Score Distribution</div>
+      <canvas id="vec-canvas"></canvas>
+    </div>
+
+    <div class="side-card">
+      <div class="sec-label">Query Terms</div>
+      <div class="tf-chart" id="tf-chart">
+        <div style="font-size:0.62rem;color:var(--muted)">Run a query to see term weights</div>
+      </div>
+    </div>
+
+    <div class="side-card">
+      <div class="sec-label">Query History</div>
+      <div class="history-list" id="history-list">
+        <div style="font-size:0.62rem;color:var(--muted)">No history yet</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const SAMPLE_QUERIES = [
+    "massive inflow of refugees",
+    "pakistan afghanistan",
+    "Hillary Clinton",
+    "american energy revolution",
+    "develop solutions",
+    "global interests",
+    "peaceful change",
+    "muslims"
+  ];
+
+  const chipsEl = document.getElementById("chips");
+  SAMPLE_QUERIES.forEach(q => {
+    const c = document.createElement("button");
+    c.className = "chip";
+    c.textContent = q;
+    c.onclick = () => {
+      document.getElementById("query-input").value = q;
+      doSearch();
+    };
+    chipsEl.appendChild(c);
+  });
+
+  document.getElementById("query-input").addEventListener("keydown", e => {
+    if (e.key === "Enter") doSearch();
+  });
+
+  function updateClock() {
+    const now = new Date();
+    document.getElementById("live-clock").textContent =
+      now.toTimeString().slice(0,8);
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+
+  let sessionQueries = 0;
+  let sessionHits = 0;
+  let history = [];
+
+  async function doSearch() {
+    const query = document.getElementById("query-input").value.trim();
+    const alpha = parseFloat(document.getElementById("alpha-slider").value);
+    const maxRes = parseInt(document.getElementById("max-slider").value);
+    if (!query) return;
+
+    document.getElementById("results").innerHTML = "";
+    document.getElementById("spinner").style.display = "block";
+    document.getElementById("status-bar").innerHTML =
+      `<span>PROCESSING: <span class="hit">"${query}"</span></span><span style="font-size:0.6rem">ALPHA=${alpha.toFixed(3)}</span>`;
+
+    try {
+      const res = await fetch("/search", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ query, alpha })
+      });
+      const data = await res.json();
+
+      document.getElementById("spinner").style.display = "none";
+
+      if (data.error) {
+        document.getElementById("status-bar").innerHTML =
+          `<span style="color:#f55">ERROR: ${data.error}</span>`;
+        return;
+      }
+
+      const limited = data.results.slice(0, maxRes);
+      sessionQueries++;
+      sessionHits += limited.length;
+
+      const scores = limited.map(r => r.score);
+      const topScore = scores.length ? Math.max(...scores) : 0;
+      const avgScore = scores.length ? scores.reduce((a,b)=>a+b,0)/scores.length : 0;
+
+      document.getElementById("stat-queries").textContent = sessionQueries;
+      document.getElementById("stat-hits").textContent = sessionHits;
+      document.getElementById("stat-avg").textContent = avgScore ? avgScore.toFixed(3) : "—";
+      document.getElementById("stat-top").textContent = topScore ? topScore.toFixed(3) : "—";
+
+      document.getElementById("status-bar").innerHTML =
+        `<span><span class="hit">${limited.length}</span> DOCUMENTS RETRIEVED</span>
+         <span style="font-size:0.6rem">TOP: ${topScore.toFixed(4)} | ALPHA=${alpha.toFixed(3)}</span>`;
+
+      renderResults(limited, topScore);
+      renderChart(scores);
+      renderTermWeights(data.query_terms || []);
+      addHistory(query, limited.length);
+
+    } catch(err) {
+      document.getElementById("spinner").style.display = "none";
+      document.getElementById("status-bar").innerHTML =
+        `<span style="color:#f55">CONNECTION ERROR</span>`;
+    }
+  }
+
+  function renderResults(results, topScore) {
+    const container = document.getElementById("results");
+    if (!results.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="e-icon">VOID</div>
+          <p class="no-results-txt">No documents above threshold</p>
+        </div>`;
+      return;
+    }
+
+    results.forEach((r, i) => {
+      const card = document.createElement("div");
+      card.className = "result-card";
+      card.style.animationDelay = `${i * 25}ms`;
+      const pct = topScore > 0 ? (r.score / topScore) * 100 : 0;
+      card.innerHTML = `
+        <div class="rank-num">${String(r.rank).padStart(2,'0')}</div>
+        <div>
+          <div class="card-fname">${r.filename}</div>
+          <div class="card-meta">
+            <span>DOC_ID: <span>${r.doc_id}</span></span>
+            <span>RANK: <span>#${r.rank}</span></span>
+          </div>
+        </div>
+        <div class="score-block">
+          <div class="score-val">${r.score.toFixed(4)}</div>
+          <div class="score-bar-wrap">
+            <div class="score-bar" style="width:${pct}%"></div>
+          </div>
+        </div>`;
+      container.appendChild(card);
+    });
+  }
+
+  function renderChart(scores) {
+    const canvas = document.getElementById("vec-canvas");
+    const ctx = canvas.getContext("2d");
+    const W = canvas.offsetWidth; const H = canvas.offsetHeight;
+    canvas.width = W; canvas.height = H;
+    ctx.clearRect(0,0,W,H);
+
+    if (!scores.length) return;
+
+    ctx.strokeStyle = "rgba(245,196,0,0.1)";
+    ctx.lineWidth = 0.5;
+    for (let i=1; i<4; i++) {
+      ctx.beginPath();
+      ctx.moveTo(0, (H/4)*i);
+      ctx.lineTo(W, (H/4)*i);
+      ctx.stroke();
+    }
+
+    const max = Math.max(...scores);
+    const barW = Math.max(2, (W / scores.length) - 2);
+
+    scores.forEach((s, i) => {
+      const h = (s / max) * (H - 10);
+      const x = i * (W / scores.length);
+      const alpha = 0.3 + (s/max) * 0.7;
+      ctx.fillStyle = `rgba(245,196,0,${alpha})`;
+      ctx.fillRect(x, H - h, barW, h);
+    });
+
+    ctx.strokeStyle = "rgba(245,196,0,0.6)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    scores.forEach((s, i) => {
+      const x = i * (W / scores.length) + barW/2;
+      const y = H - (s/max)*(H-10);
+      i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+  }
+
+  function renderTermWeights(terms) {
+    const el = document.getElementById("tf-chart");
+    if (!terms.length) return;
+    const max = Math.max(...terms.map(t=>t.weight));
+    el.innerHTML = terms.slice(0,8).map(t => {
+      const pct = max > 0 ? (t.weight/max)*100 : 0;
+      return `<div class="tf-row">
+        <span class="tf-term">${t.term}</span>
+        <div class="tf-bar-bg"><div class="tf-bar-fill" style="width:${pct}%"></div></div>
+        <span class="tf-count">${t.weight.toFixed(1)}</span>
+      </div>`;
+    }).join("");
+  }
+
+  function addHistory(query, hits) {
+    history.unshift({ query, hits });
+    if (history.length > 10) history.pop();
+    const el = document.getElementById("history-list");
+    el.innerHTML = history.map(h => `
+      <div class="hist-item" onclick="document.getElementById('query-input').value='${h.query.replace(/'/g,"\\'")}';doSearch()">
+        <span>${h.query}</span>
+        <span class="hist-hits">${h.hits}</span>
+      </div>`).join("");
+  }
+</script>
+</body>
+</html>
